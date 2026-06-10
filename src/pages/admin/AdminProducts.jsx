@@ -11,7 +11,6 @@ const AdminProducts = () => {
   const [price, setPrice] = useState('');
   const [collection, setCollection] = useState('Esenciales');
   const [stock, setStock] = useState('0');
-  const [stock, setStock] = useState('0');
   const [file, setFile] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editingId, setEditingId] = useState(null);
