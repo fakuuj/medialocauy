@@ -11,8 +11,31 @@ const AdminProducts = () => {
   const [price, setPrice] = useState('');
   const [collection, setCollection] = useState('Esenciales');
   const [stock, setStock] = useState('0');
+  const [stock, setStock] = useState('0');
   const [file, setFile] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+
+  const resetForm = () => {
+    setShowForm(false);
+    setEditingId(null);
+    setName('');
+    setPrice('');
+    setCollection('Esenciales');
+    setStock('0');
+    setFile(null);
+  };
+
+  const handleEditClick = (product) => {
+    setEditingId(product.id);
+    setName(product.name);
+    setPrice(product.price.toString());
+    setCollection(product.collection);
+    setStock(product.stock.toString());
+    setFile(null);
+    setShowForm(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   useEffect(() => {
     fetchProducts();
@@ -29,54 +52,60 @@ const AdminProducts = () => {
     setLoading(false);
   };
 
-  const handleAddProduct = async (e) => {
+  const handleSaveProduct = async (e) => {
     e.preventDefault();
-    if (!file) {
-      alert('Debes seleccionar una imagen');
+    if (!editingId && !file) {
+      alert('Debes seleccionar una imagen para un producto nuevo');
       return;
     }
 
     setIsSubmitting(true);
     try {
-      // 1. Subir imagen a storage
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${Math.random()}.${fileExt}`;
-      const filePath = `${fileName}`;
+      let publicUrl = undefined;
 
-      const { error: uploadError, data: uploadData } = await supabase.storage
-        .from('product-images')
-        .upload(filePath, file);
+      // 1. Subir imagen a storage si hay una nueva
+      if (file) {
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${Math.random()}.${fileExt}`;
+        const filePath = `${fileName}`;
 
-      if (uploadError) throw uploadError;
+        const { error: uploadError } = await supabase.storage
+          .from('product-images')
+          .upload(filePath, file);
 
-      // Obtener URL pública
-      const { data: { publicUrl } } = supabase.storage
-        .from('product-images')
-        .getPublicUrl(filePath);
+        if (uploadError) throw uploadError;
 
-      // 2. Insertar producto en BD
-      const { error: insertError } = await supabase
-        .from('products')
-        .insert([{
-          name,
-          price: Number(price),
-          collection,
-          stock: Number(stock),
-          image: publicUrl
-        }]);
+        // Obtener URL pública
+        const { data } = supabase.storage
+          .from('product-images')
+          .getPublicUrl(filePath);
+        
+        publicUrl = data.publicUrl;
+      }
 
-      if (insertError) throw insertError;
+      const productData = {
+        name,
+        price: Number(price),
+        collection,
+        stock: Number(stock),
+      };
+      if (publicUrl) productData.image = publicUrl;
+
+      // 2. Insertar o actualizar producto en BD
+      if (editingId) {
+        const { error: updateError } = await supabase.from('products').update(productData).eq('id', editingId);
+        if (updateError) throw updateError;
+      } else {
+        const { error: insertError } = await supabase.from('products').insert([productData]);
+        if (insertError) throw insertError;
+      }
 
       // Limpiar y recargar
-      setShowForm(false);
-      setName('');
-      setPrice('');
-      setStock('0');
-      setFile(null);
+      resetForm();
       fetchProducts();
     } catch (error) {
-      console.error("Error agregando producto", error);
-      alert('Error agregando el producto');
+      console.error("Error guardando producto", error);
+      alert('Error guardando el producto');
     }
     setIsSubmitting(false);
   };
@@ -95,7 +124,7 @@ const AdminProducts = () => {
       <div className="flex justify-between items-center mb-lg">
         <h1 className="font-headline-lg text-on-surface">Productos</h1>
         <button 
-          onClick={() => setShowForm(!showForm)}
+          onClick={() => showForm ? resetForm() : setShowForm(true)}
           className="bg-primary text-on-primary px-md py-sm rounded-full flex items-center gap-sm font-label-md hover:bg-primary-container hover:text-on-primary-container transition-colors">
           <span className="material-symbols-outlined">{showForm ? 'close' : 'add'}</span>
           {showForm ? 'Cancelar' : 'Nuevo Producto'}
@@ -104,8 +133,8 @@ const AdminProducts = () => {
 
       {showForm && (
         <div className="bg-surface-container-lowest border border-surface-variant rounded-xl p-lg mb-lg shadow-sm">
-          <h2 className="font-title-lg mb-md">Agregar Producto</h2>
-          <form onSubmit={handleAddProduct} className="grid grid-cols-1 md:grid-cols-2 gap-md">
+          <h2 className="font-title-lg mb-md">{editingId ? 'Editar Producto' : 'Agregar Producto'}</h2>
+          <form onSubmit={handleSaveProduct} className="grid grid-cols-1 md:grid-cols-2 gap-md">
             <div>
               <label className="block text-label-sm text-on-surface-variant mb-xs">Nombre</label>
               <input required value={name} onChange={e=>setName(e.target.value)} className="w-full bg-surface-container-low border-outline-variant rounded-lg p-sm focus:ring-2 focus:ring-primary" />
@@ -125,8 +154,8 @@ const AdminProducts = () => {
               <input required type="number" value={stock} onChange={e=>setStock(e.target.value)} className="w-full bg-surface-container-low border-outline-variant rounded-lg p-sm focus:ring-2 focus:ring-primary" />
             </div>
             <div className="md:col-span-2">
-              <label className="block text-label-sm text-on-surface-variant mb-xs">Imagen</label>
-              <input required type="file" accept="image/*" onChange={e=>setFile(e.target.files[0])} className="w-full bg-surface-container-low border-outline-variant rounded-lg p-sm" />
+              <label className="block text-label-sm text-on-surface-variant mb-xs">Imagen {editingId && '(Opcional, dejar vacío para no cambiarla)'}</label>
+              <input type="file" accept="image/*" onChange={e=>setFile(e.target.files[0])} required={!editingId} className="w-full bg-surface-container-low border-outline-variant rounded-lg p-sm" />
             </div>
             <div className="md:col-span-2 flex justify-end">
               <button disabled={isSubmitting} type="submit" className="bg-primary text-on-primary px-lg py-sm rounded-full font-label-md disabled:opacity-50">
@@ -139,12 +168,17 @@ const AdminProducts = () => {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-md">
         {products.map(product => (
-          <div key={product.id} className="bg-surface-container-lowest border border-surface-variant rounded-xl overflow-hidden shadow-sm flex flex-col">
+          <div key={product.id} className="bg-surface-container-lowest border border-surface-variant rounded-xl overflow-hidden shadow-sm flex flex-col group">
             <div className="aspect-square bg-surface-container-low relative">
               <img src={product.image} alt={product.name} className="w-full h-full object-cover" />
               <button 
+                onClick={() => handleEditClick(product)}
+                className="absolute top-2 right-12 w-8 h-8 bg-surface text-primary rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity" title="Editar">
+                <span className="material-symbols-outlined text-[18px]">edit</span>
+              </button>
+              <button 
                 onClick={() => handleDelete(product.id)}
-                className="absolute top-2 right-2 w-8 h-8 bg-error text-white rounded-full flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity" title="Eliminar">
+                className="absolute top-2 right-2 w-8 h-8 bg-error text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity" title="Eliminar">
                 <span className="material-symbols-outlined text-[18px]">delete</span>
               </button>
             </div>
